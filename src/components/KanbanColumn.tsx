@@ -55,7 +55,7 @@ export function KanbanColumn({
             {tasks.length}
           </span>
         </div>
-        {column.id === 'backlog' && (
+        {column.color === 'backlog' && (
           <CreateTaskDialog 
             teamMembers={teamMembers}
             onCreateTask={onCreateTask}
