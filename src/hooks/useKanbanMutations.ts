@@ -158,11 +158,31 @@ export const useKanbanMutations = (refetch: () => void) => {
   };
 
   const updateMembers = async (members: TeamMember[]) => {
-    // This is a simplified implementation - in a real app you'd want more sophisticated member management
+    const { error } = await supabase
+      .from('team_members')
+      .upsert(
+        members.map(member => ({
+          id: member.id,
+          name: member.name,
+          avatar: member.avatar,
+          color: member.color
+        }))
+      );
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update team members",
+        variant: "destructive",
+      });
+      return;
+    }
+
     toast({
-      title: "Info",
-      description: "Member updates not yet implemented",
+      title: "Success",
+      description: "Team members updated successfully",
     });
+    refetch();
   };
 
   return {
