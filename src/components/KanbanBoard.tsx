@@ -1,29 +1,38 @@
 import { useState } from "react";
 import { DragDropContext, DropResult } from "@hello-pangea/dnd";
-import { KanbanData, TeamMember, Task } from "@/types/kanban";
+import { TeamMember, Task } from "@/types/kanban";
 import { KanbanColumn } from "./KanbanColumn";
 import { FinishedColumn } from "./FinishedColumn";
 import { WeeklyStatsPanel } from "./WeeklyStatsPanel";
 import { EditMemberDialog } from "./EditMemberDialog";
 import { WeekDateEditor } from "./WeekDateEditor";
 import { TaskCompletionCelebration } from "./TaskCompletionCelebration";
-import { teamMembers as initialTeamMembers, mockWeeklyStats } from "@/data/mockData";
+import { mockWeeklyStats } from "@/data/mockData";
 import { Card } from "@/components/ui/card";
 import { Users, TrendingUp } from "lucide-react";
 import { startOfWeek, endOfWeek } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { useKanbanData } from "@/hooks/useKanbanData";
+import { useKanbanMutations } from "@/hooks/useKanbanMutations";
 
-interface KanbanBoardProps {
-  initialData: KanbanData;
-}
+interface KanbanBoardProps {}
 
-export function KanbanBoard({ initialData }: KanbanBoardProps) {
-  const [data, setData] = useState(initialData);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>(initialTeamMembers);
+export function KanbanBoard({}: KanbanBoardProps) {
+  const { data, teamMembers, loading, refetch } = useKanbanData();
+  const { createTask, updateTask, deleteTask, moveTask, updateMembers } = useKanbanMutations(refetch);
+  
   const [weekStartDate, setWeekStartDate] = useState<Date>(startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [weekEndDate, setWeekEndDate] = useState<Date>(endOfWeek(new Date(), { weekStartsOn: 1 }));
   const [completedTask, setCompletedTask] = useState<Task | null>(null);
   const { toast } = useToast();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-background p-6 flex items-center justify-center">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
 
   const handleUpdateWeekDates = (startDate: Date, endDate: Date) => {
     setWeekStartDate(startDate);
@@ -31,85 +40,23 @@ export function KanbanBoard({ initialData }: KanbanBoardProps) {
   };
 
   const handleCreateTask = (taskData: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => {
-    const newTask: Task = {
-      ...taskData,
-      id: `task-${Date.now()}`,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-
-    setData(prev => ({
-      ...prev,
-      tasks: {
-        ...prev.tasks,
-        [newTask.id]: newTask,
-      },
-      columns: {
-        ...prev.columns,
-        backlog: {
-          ...prev.columns.backlog,
-          taskIds: [...prev.columns.backlog.taskIds, newTask.id],
-        },
-      },
-    }));
+    // Find the backlog column ID
+    const backlogColumn = Object.values(data.columns).find(col => col.color === 'backlog');
+    if (backlogColumn) {
+      createTask({ ...taskData, columnId: backlogColumn.id });
+    }
   };
 
   const handleUpdateTask = (taskId: string, updates: Partial<Task>) => {
-    setData(prev => ({
-      ...prev,
-      tasks: {
-        ...prev.tasks,
-        [taskId]: {
-          ...prev.tasks[taskId],
-          ...updates,
-          updatedAt: new Date(),
-        },
-      },
-    }));
+    updateTask(taskId, updates);
   };
 
   const handleDeleteTask = (taskId: string) => {
-    setData(prev => {
-      // Remove task from tasks
-      const { [taskId]: deletedTask, ...remainingTasks } = prev.tasks;
-      
-      // Remove task from all columns
-      const updatedColumns = { ...prev.columns };
-      Object.keys(updatedColumns).forEach(columnId => {
-        updatedColumns[columnId] = {
-          ...updatedColumns[columnId],
-          taskIds: updatedColumns[columnId].taskIds.filter(id => id !== taskId),
-        };
-      });
-
-      return {
-        ...prev,
-        tasks: remainingTasks,
-        columns: updatedColumns,
-      };
-    });
+    deleteTask(taskId);
   };
 
   const handleUpdateMembers = (updatedMembers: TeamMember[]) => {
-    setTeamMembers(updatedMembers);
-    
-    // Update existing tasks to reflect member changes
-    const updatedTasks = { ...data.tasks };
-    Object.keys(updatedTasks).forEach(taskId => {
-      const task = updatedTasks[taskId];
-      const updatedMember = updatedMembers.find(m => m.id === task.assignee.id);
-      if (updatedMember) {
-        updatedTasks[taskId] = {
-          ...task,
-          assignee: updatedMember,
-        };
-      }
-    });
-
-    setData(prev => ({
-      ...prev,
-      tasks: updatedTasks,
-    }));
+    updateMembers(updatedMembers);
   };
 
   const onDragEnd = (result: DropResult) => {
@@ -135,77 +82,24 @@ export function KanbanBoard({ initialData }: KanbanBoardProps) {
     const sourceColumnId = getColumnId(source.droppableId);
     const destColumnId = getColumnId(destination.droppableId);
 
-    const start = data.columns[sourceColumnId];
-    const finish = data.columns[destColumnId];
-
-    if (start === finish) {
-      // Moving within the same column
-      const newTaskIds = Array.from(start.taskIds);
-      newTaskIds.splice(source.index, 1);
-      newTaskIds.splice(destination.index, 0, draggableId);
-
-      const newColumn = {
-        ...start,
-        taskIds: newTaskIds,
-      };
-
-      setData({
-        ...data,
-        columns: {
-          ...data.columns,
-          [newColumn.id]: newColumn,
-        },
-      });
-    } else {
-      // Moving to a different column
-      const startTaskIds = Array.from(start.taskIds);
-      startTaskIds.splice(source.index, 1);
-      const newStart = {
-        ...start,
-        taskIds: startTaskIds,
-      };
-
-      const finishTaskIds = Array.from(finish.taskIds);
-      finishTaskIds.splice(destination.index, 0, draggableId);
-      const newFinish = {
-        ...finish,
-        taskIds: finishTaskIds,
-      };
-
-      // Update task's updatedAt timestamp
-      const updatedTask = {
-        ...data.tasks[draggableId],
-        updatedAt: new Date(),
-      };
-
-      // Check if task was completed (moved to finished column)
-      const isTaskCompleted = destColumnId === 'finished' && sourceColumnId !== 'finished';
-      
-      if (isTaskCompleted) {
-        // Trigger celebration
-        setCompletedTask(updatedTask);
-        
-        // Show success toast
+    // Check if task was completed (moved to finished column)
+    const finishedColumn = Object.values(data.columns).find(col => col.color === 'finished');
+    const isTaskCompleted = destColumnId === finishedColumn?.id && sourceColumnId !== finishedColumn?.id;
+    
+    if (isTaskCompleted) {
+      const movedTask = data.tasks[draggableId];
+      if (movedTask) {
+        setCompletedTask(movedTask);
         toast({
           title: "🎉 Task Completed!",
-          description: `"${updatedTask.title}" has been finished by ${updatedTask.assignee.name}`,
+          description: `"${movedTask.title}" has been finished by ${movedTask.assignee.name}`,
           duration: 4000,
         });
       }
-
-      setData({
-        ...data,
-        tasks: {
-          ...data.tasks,
-          [draggableId]: updatedTask,
-        },
-        columns: {
-          ...data.columns,
-          [newStart.id]: newStart,
-          [newFinish.id]: newFinish,
-        },
-      });
     }
+
+    // Move task in backend
+    moveTask(draggableId, sourceColumnId, destColumnId, destination.index + 1);
   };
 
   return (
