@@ -8,12 +8,26 @@ interface WeeklyStatsPanelProps {
 
 export function WeeklyStatsPanel({ stats, teamMembers }: WeeklyStatsPanelProps) {
   const getTopPerformer = () => {
-    return teamMembers
+    const membersWithStats = teamMembers
       .map(member => ({
         ...member,
-        stats: stats.memberStats[member.id]
+        stats: stats.memberStats[member.id] || {
+          completed: 0,
+          inProgress: 0,
+          overdue: 0,
+          score: 0
+        }
       }))
-      .sort((a, b) => b.stats.score - a.stats.score)[0];
+      .filter(member => member.stats);
+    
+    if (membersWithStats.length === 0) {
+      return teamMembers[0] ? {
+        ...teamMembers[0],
+        stats: { completed: 0, inProgress: 0, overdue: 0, score: 0 }
+      } : null;
+    }
+    
+    return membersWithStats.sort((a, b) => b.stats.score - a.stats.score)[0];
   };
 
   const getTotalStats = () => {
@@ -27,6 +41,10 @@ export function WeeklyStatsPanel({ stats, teamMembers }: WeeklyStatsPanelProps) 
 
   const topPerformer = getTopPerformer();
   const totalStats = getTotalStats();
+
+  if (!topPerformer) {
+    return null;
+  }
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t border-border z-50">
